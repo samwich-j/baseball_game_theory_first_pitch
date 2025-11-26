@@ -148,6 +148,10 @@ q = (waste_take - waste_swing) / (zone_swing - zone_take + waste_take - waste_sw
 - Tango, T., Lichtman, M., & Dolphin, A. (2007). *The Book: Playing the Percentages in Baseball*
 - Nash, J. F. (1951). "Non-Cooperative Games". *Annals of Mathematics*, 54(2), 286-295
 
+## Next Steps
+
+My next step for this project would be to create a python script for users to actively query the database in the terminal for easier testing of different situations.
+
 ## License
 
 This project uses the Lahman Baseball Database, which is made available under the Creative Commons Attribution-ShareAlike 3.0 Unported License.
@@ -161,5 +165,7 @@ Contributions are welcome! Areas for enhancement:
 - Historical era comparisons
 
 ## Author
+
+Sam Johnston
 
 Created as a reproducible research document combining R, Game Theory, and Baseball Analytics.
