@@ -1,0 +1,511 @@
+---
+title: "First Pitch Equilibrium Analysis"
+format:
+  html:
+    code-fold: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+# Load required libraries
+library(tidyverse)
+library(Lahman)
+library(scales)
+
+# Suppress startup messages
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(Lahman)
+  library(scales)
+})
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+## User Configuration
+
+```{r user_inputs}
+# ============================================================================
+# USER INPUTS: Configure your analysis here
+# ============================================================================
+
+# Set target_batter and target_pitcher to player names (e.g., "Trout, Mike")
+# Set to NULL to use League Average stats for the most recent year
+# To use custom manual stats, define manual_batter_stats or manual_pitcher_stats below
+
+target_batter <- NULL
+target_pitcher <- NULL
+
+# Optional: Define manual stats (uncomment and modify to use)
+# manual_batter_stats <- c(
+#   swing_rate = 0.45,
+#   contact_rate = 0.85,
+#   zone_rate = 0.48
+# )
+#
+# manual_pitcher_stats <- c(
+#   zone_rate = 0.45,
+#   chase_rate = 0.30,
+#   strike_rate = 0.65
+# )
+```
+
+## Theme Setup
+
+```{r theme_setup}
+# ============================================================================
+# CUSTOM BASEBALL THEME FOR VISUALIZATIONS
+# ============================================================================
+
+# Baseball color palette
+baseball_colors <- list(
+  dark_green = "#003831",    # Classic baseball field green
+  red = "#BD3039",           # Baseball seam red
+  white = "#FFFFFF",         # Baseball white
+  cream = "#F5F5DC",         # Vintage baseball cream
+  brown = "#8B4513",         # Dirt/leather brown
+  blue = "#002D72"           # Classic baseball blue
+)
+
+# Custom ggplot theme
+theme_baseball <- function() {
+  theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", color = baseball_colors$dark_green),
+      plot.subtitle = element_text(size = 12, color = baseball_colors$brown),
+      axis.title = element_text(size = 11, face = "bold"),
+      axis.text = element_text(size = 10),
+      panel.grid.major = element_line(color = "grey85", linewidth = 0.3),
+      panel.grid.minor = element_line(color = "grey90", linewidth = 0.2),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      plot.background = element_rect(fill = baseball_colors$cream, color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+}
+```
+
+## Data Ingestion
+
+```{r data_functions}
+# ============================================================================
+# DATA INGESTION FUNCTIONS
+# ============================================================================
+
+get_batter_stats <- function(name = NULL) {
+  # Decision tree for data source selection:
+  # 1. If manual_batter_stats exists -> Use manual stats
+  # 2. If name is provided -> Fetch from Lahman database
+  # 3. If name is NULL or not found -> Calculate League Average for most recent year
+
+  # Check for manual stats first
+  if (exists("manual_batter_stats") && !is.null(manual_batter_stats)) {
+    cat("📊 Using MANUAL stats for batter\n")
+    return(manual_batter_stats)
+  }
+
+  # If a specific name is provided, fetch from Lahman
+  if (!is.null(name)) {
+    # Parse name (format: "Last, First")
+    name_parts <- str_split(name, ", ")[[1]]
+    if (length(name_parts) == 2) {
+      last_name <- name_parts[1]
+      first_name <- name_parts[2]
+
+      # Find player in People table
+      player <- People %>%
+        filter(nameLast == last_name, nameFirst == first_name) %>%
+        slice(1)
+
+      if (nrow(player) > 0) {
+        player_id <- player$playerID
+
+        # Get most recent season stats
+        recent_year <- max(Batting$yearID)
+        player_stats <- Batting %>%
+          filter(playerID == player_id, yearID == recent_year) %>%
+          summarise(
+            avg = sum(H, na.rm = TRUE) / sum(AB, na.rm = TRUE),
+            obp = sum(H + BB + HBP, na.rm = TRUE) / sum(AB + BB + HBP + SF, na.rm = TRUE),
+            slg = sum(H + X2B + 2*X3B + 3*HR, na.rm = TRUE) / sum(AB, na.rm = TRUE),
+            pa = sum(AB + BB + HBP + SF, na.rm = TRUE)
+          )
+
+        if (nrow(player_stats) > 0 && player_stats$pa > 0) {
+          cat("⚾ Using LAHMAN DATABASE stats for batter:", name, "\n")
+          return(as.list(player_stats))
+        }
+      }
+
+      cat("⚠️  Player", name, "not found. Falling back to League Average.\n")
+    }
+  }
+
+  # Default: Calculate League Average for most recent year
+  recent_year <- max(Batting$yearID)
+  league_avg <- Batting %>%
+    filter(yearID == recent_year) %>%
+    summarise(
+      avg = sum(H, na.rm = TRUE) / sum(AB, na.rm = TRUE),
+      obp = sum(H + BB + HBP, na.rm = TRUE) / sum(AB + BB + HBP + SF, na.rm = TRUE),
+      slg = sum(H + X2B + 2*X3B + 3*HR, na.rm = TRUE) / sum(AB, na.rm = TRUE),
+      pa = sum(AB + BB + HBP + SF, na.rm = TRUE)
+    )
+
+  cat("📈 Using LEAGUE AVERAGE stats for batter (", recent_year, " season)\n", sep = "")
+  return(as.list(league_avg))
+}
+
+get_pitcher_stats <- function(name = NULL) {
+  # Decision tree for data source selection:
+  # 1. If manual_pitcher_stats exists -> Use manual stats
+  # 2. If name is provided -> Fetch from Lahman database
+  # 3. If name is NULL or not found -> Calculate League Average for most recent year
+
+  # Check for manual stats first
+  if (exists("manual_pitcher_stats") && !is.null(manual_pitcher_stats)) {
+    cat("📊 Using MANUAL stats for pitcher\n")
+    return(manual_pitcher_stats)
+  }
+
+  # If a specific name is provided, fetch from Lahman
+  if (!is.null(name)) {
+    # Parse name (format: "Last, First")
+    name_parts <- str_split(name, ", ")[[1]]
+    if (length(name_parts) == 2) {
+      last_name <- name_parts[1]
+      first_name <- name_parts[2]
+
+      # Find player in People table
+      player <- People %>%
+        filter(nameLast == last_name, nameFirst == first_name) %>%
+        slice(1)
+
+      if (nrow(player) > 0) {
+        player_id <- player$playerID
+
+        # Get most recent season stats
+        recent_year <- max(Pitching$yearID)
+        player_stats <- Pitching %>%
+          filter(playerID == player_id, yearID == recent_year) %>%
+          summarise(
+            era = sum(ER, na.rm = TRUE) * 9 / sum(IPouts, na.rm = TRUE) * 3,
+            whip = sum(BB + H, na.rm = TRUE) / (sum(IPouts, na.rm = TRUE) / 3),
+            so_per_9 = sum(SO, na.rm = TRUE) * 9 / (sum(IPouts, na.rm = TRUE) / 3),
+            bb_per_9 = sum(BB, na.rm = TRUE) * 9 / (sum(IPouts, na.rm = TRUE) / 3),
+            ip = sum(IPouts, na.rm = TRUE) / 3
+          )
+
+        if (nrow(player_stats) > 0 && player_stats$ip > 0) {
+          cat("⚾ Using LAHMAN DATABASE stats for pitcher:", name, "\n")
+          return(as.list(player_stats))
+        }
+      }
+
+      cat("⚠️  Player", name, "not found. Falling back to League Average.\n")
+    }
+  }
+
+  # Default: Calculate League Average for most recent year
+  recent_year <- max(Pitching$yearID)
+  league_avg <- Pitching %>%
+    filter(yearID == recent_year) %>%
+    summarise(
+      era = sum(ER, na.rm = TRUE) * 9 / sum(IPouts, na.rm = TRUE) * 3,
+      whip = sum(BB + H, na.rm = TRUE) / (sum(IPouts, na.rm = TRUE) / 3),
+      so_per_9 = sum(SO, na.rm = TRUE) * 9 / (sum(IPouts, na.rm = TRUE) / 3),
+      bb_per_9 = sum(BB, na.rm = TRUE) * 9 / (sum(IPouts, na.rm = TRUE) / 3),
+      ip = sum(IPouts, na.rm = TRUE) / 3
+    )
+
+  cat("📈 Using LEAGUE AVERAGE stats for pitcher (", recent_year, " season)\n", sep = "")
+  return(as.list(league_avg))
+}
+```
+
+```{r load_data}
+# ============================================================================
+# LOAD DATA FOR ANALYSIS
+# ============================================================================
+
+# Retrieve batter and pitcher statistics based on user configuration
+batter_stats <- get_batter_stats(target_batter)
+pitcher_stats <- get_pitcher_stats(target_pitcher)
+```
+
+## Game Theory Matrix
+
+```{r payoff_matrix}
+# ============================================================================
+# 2x2 PAYOFF MATRIX: First Pitch Game
+# ============================================================================
+
+# Run Expectancy Deltas (from batter's perspective)
+# These values represent the change in expected runs for the inning
+# based on count transitions from 0-0
+
+# Count transitions:
+# 0-0 to 0-1 (strike): -0.06 runs
+# 0-0 to 1-0 (ball):   +0.04 runs
+
+re_delta_strike <- -0.06
+re_delta_ball <- 0.04
+
+# Zone + Swing outcome: Based on contact quality
+# Using league average OBP as proxy for successful contact value
+# Typical value range: +0.15 to +0.30 runs
+re_delta_contact <- batter_stats$obp * 0.60  # Scaled contact outcome
+
+# Waste + Swing outcome: Chase/whiff leads to 0-1 count
+# Same as called strike but with risk of whiff
+re_delta_chase <- re_delta_strike
+
+# Build the 2x2 payoff matrix
+# Rows: Pitcher's strategy (Zone vs Waste)
+# Columns: Batter's strategy (Swing vs Take)
+payoff_matrix <- tibble(
+  pitcher_strategy = c("Zone", "Waste"),
+  swing = c(re_delta_contact, re_delta_chase),
+  take = c(re_delta_strike, re_delta_ball)
+)
+
+# Display the matrix
+cat("\n🎯 First Pitch Payoff Matrix (Batter's Expected Runs)\n")
+cat("=" , rep("=", 50), "\n", sep = "")
+print(payoff_matrix, width = Inf)
+cat("\n")
+cat("Legend:\n")
+cat("  Zone + Swing = Contact outcome (", sprintf("%.3f", re_delta_contact), " runs)\n", sep = "")
+cat("  Zone + Take  = Called strike (", sprintf("%.3f", re_delta_strike), " runs)\n", sep = "")
+cat("  Waste + Swing = Chase/whiff   (", sprintf("%.3f", re_delta_chase), " runs)\n", sep = "")
+cat("  Waste + Take = Ball           (", sprintf("%.3f", re_delta_ball), " runs)\n", sep = "")
+```
+
+## Nash Equilibrium Solver
+
+```{r nash_equilibrium}
+# ============================================================================
+# MIXED STRATEGY NASH EQUILIBRIUM SOLVER
+# ============================================================================
+
+solve_nash_equilibrium <- function(matrix) {
+  # Extract payoff values from the matrix
+  # Matrix structure (batter's perspective):
+  #              Swing       Take
+  # Zone     [contact]   [strike]
+  # Waste    [chase]     [ball]
+
+  zone_swing <- matrix$swing[matrix$pitcher_strategy == "Zone"]
+  zone_take <- matrix$take[matrix$pitcher_strategy == "Zone"]
+  waste_swing <- matrix$swing[matrix$pitcher_strategy == "Waste"]
+  waste_take <- matrix$take[matrix$pitcher_strategy == "Waste"]
+
+  # Calculate batter's optimal swing probability (p)
+  # Batter is indifferent when EV(Swing) = EV(Take) across pitcher's strategies
+  # Solving: p*(zone_swing - waste_swing) + (1-p)*(zone_take - waste_take) makes pitcher indifferent
+  # Rearranged: p = (waste_take - zone_take) / (zone_swing - waste_swing + waste_take - zone_take)
+
+  numerator_batter <- waste_take - zone_take
+  denominator_batter <- zone_swing - waste_swing + waste_take - zone_take
+
+  optimal_swing_pct <- numerator_batter / denominator_batter
+
+  # Calculate pitcher's optimal zone probability (q)
+  # Pitcher is indifferent when EV(Zone) = EV(Waste) across batter's strategies
+  # Solving: q = (waste_take - waste_swing) / (zone_swing - zone_take + waste_take - waste_swing)
+
+  numerator_pitcher <- waste_take - waste_swing
+  denominator_pitcher <- zone_swing - zone_take + waste_take - waste_swing
+
+  optimal_zone_pct <- numerator_pitcher / denominator_pitcher
+
+  # Calculate equilibrium expected value for batter
+  eq_value <- optimal_zone_pct * zone_swing + (1 - optimal_zone_pct) * waste_swing
+
+  # Return results as a list
+  list(
+    batter_swing_pct = optimal_swing_pct,
+    pitcher_zone_pct = optimal_zone_pct,
+    equilibrium_value = eq_value,
+    payoffs = list(
+      zone_swing = zone_swing,
+      zone_take = zone_take,
+      waste_swing = waste_swing,
+      waste_take = waste_take
+    )
+  )
+}
+
+# Solve for Nash equilibrium
+equilibrium <- solve_nash_equilibrium(payoff_matrix)
+
+# Display results
+cat("\n⚖️  NASH EQUILIBRIUM SOLUTION\n")
+cat("=" , rep("=", 50), "\n", sep = "")
+cat("\n🏏 BATTER'S OPTIMAL STRATEGY:\n")
+cat("   Swing on first pitch: ", sprintf("%.1f%%", equilibrium$batter_swing_pct * 100), "\n", sep = "")
+cat("   Take on first pitch:  ", sprintf("%.1f%%", (1 - equilibrium$batter_swing_pct) * 100), "\n", sep = "")
+cat("\n⚾ PITCHER'S OPTIMAL STRATEGY:\n")
+cat("   Throw in zone:  ", sprintf("%.1f%%", equilibrium$pitcher_zone_pct * 100), "\n", sep = "")
+cat("   Throw waste:    ", sprintf("%.1f%%", (1 - equilibrium$pitcher_zone_pct) * 100), "\n", sep = "")
+cat("\n📊 EQUILIBRIUM EXPECTED VALUE:\n")
+cat("   Batter's expected runs: ", sprintf("%.4f", equilibrium$equilibrium_value), "\n", sep = "")
+cat("\n")
+```
+
+## Visualization
+
+```{r equilibrium_plot, fig.width=10, fig.height=6}
+# ============================================================================
+# EXPECTED VALUE CURVES: Visualizing Nash Equilibrium
+# ============================================================================
+
+# Create sequence of swing probabilities (0% to 100%)
+swing_prob_seq <- seq(0, 1, by = 0.01)
+
+# Calculate expected values for batter across different swing probabilities
+# For a given swing probability p:
+# EV(Zone) = p * zone_swing + (1-p) * zone_take
+# EV(Waste) = p * waste_swing + (1-p) * waste_take
+
+ev_data <- tibble(
+  swing_pct = swing_prob_seq * 100,
+  ev_if_zone = swing_prob_seq * equilibrium$payoffs$zone_swing +
+               (1 - swing_prob_seq) * equilibrium$payoffs$zone_take,
+  ev_if_waste = swing_prob_seq * equilibrium$payoffs$waste_swing +
+                (1 - swing_prob_seq) * equilibrium$payoffs$waste_take
+) %>%
+  pivot_longer(
+    cols = c(ev_if_zone, ev_if_waste),
+    names_to = "pitcher_location",
+    values_to = "expected_value"
+  ) %>%
+  mutate(
+    pitcher_location = case_when(
+      pitcher_location == "ev_if_zone" ~ "Pitcher Throws Zone",
+      pitcher_location == "ev_if_waste" ~ "Pitcher Throws Waste"
+    )
+  )
+
+# Create the plot
+ggplot(ev_data, aes(x = swing_pct, y = expected_value, color = pitcher_location)) +
+  geom_line(linewidth = 1.2) +
+  geom_vline(
+    xintercept = equilibrium$batter_swing_pct * 100,
+    linetype = "dashed",
+    color = baseball_colors$red,
+    linewidth = 0.8
+  ) +
+  geom_point(
+    data = tibble(
+      x = equilibrium$batter_swing_pct * 100,
+      y = equilibrium$equilibrium_value
+    ),
+    aes(x = x, y = y),
+    color = baseball_colors$red,
+    size = 4,
+    inherit.aes = FALSE
+  ) +
+  annotate(
+    "text",
+    x = equilibrium$batter_swing_pct * 100,
+    y = equilibrium$equilibrium_value + 0.02,
+    label = sprintf("Nash Equilibrium\nSwing: %.1f%%", equilibrium$batter_swing_pct * 100),
+    color = baseball_colors$red,
+    fontface = "bold",
+    size = 4,
+    vjust = 0
+  ) +
+  scale_color_manual(
+    values = c("Pitcher Throws Zone" = baseball_colors$dark_green,
+               "Pitcher Throws Waste" = baseball_colors$blue)
+  ) +
+  labs(
+    title = "First Pitch Expected Value: Finding Nash Equilibrium",
+    subtitle = "Batter's optimal swing percentage makes pitcher indifferent between Zone and Waste",
+    x = "Batter Swing Percentage (%)",
+    y = "Expected Runs (Batter's Perspective)",
+    color = "Pitcher Strategy"
+  ) +
+  theme_baseball() +
+  scale_x_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+  scale_y_continuous(labels = label_number(accuracy = 0.01))
+```
+
+## Strategic Interpretation
+
+```{r interpretation}
+# ============================================================================
+# AUTOMATIC INTERPRETATION OF RESULTS
+# ============================================================================
+
+cat("\n📖 STRATEGIC ANALYSIS\n")
+cat("=" , rep("=", 70), "\n", sep = "")
+cat("\n")
+
+# Determine player types based on current configuration
+if (!is.null(target_batter)) {
+  batter_type <- paste0("batter ", target_batter)
+} else {
+  batter_type <- "the league average batter"
+}
+
+if (!is.null(target_pitcher)) {
+  pitcher_type <- paste0("pitcher ", target_pitcher)
+} else {
+  pitcher_type <- "the league average pitcher"
+}
+
+cat("MATCHUP: ", batter_type, " vs. ", pitcher_type, "\n\n", sep = "")
+
+cat("EQUILIBRIUM STRATEGY:\n")
+cat("  • The batter should swing on ", sprintf("%.1f%%", equilibrium$batter_swing_pct * 100),
+    " of first pitches\n", sep = "")
+cat("  • The pitcher should throw in the zone ", sprintf("%.1f%%", equilibrium$pitcher_zone_pct * 100),
+    " of the time\n\n", sep = "")
+
+cat("WHY THIS WORKS:\n")
+cat("  At this equilibrium, both players are mixing their strategies optimally.\n")
+cat("  Neither player can improve their expected outcome by changing strategy\n")
+cat("  unilaterally, which defines the Nash Equilibrium.\n\n")
+
+# Assess aggressiveness
+if (equilibrium$batter_swing_pct > 0.50) {
+  swing_assessment <- "aggressive"
+  swing_context <- "This batter should be looking to attack first pitches."
+} else if (equilibrium$batter_swing_pct < 0.35) {
+  swing_assessment <- "patient"
+  swing_context <- "This batter should be selective on first pitches."
+} else {
+  swing_assessment <- "balanced"
+  swing_context <- "This batter should use a moderate approach on first pitches."
+}
+
+cat("PRACTICAL IMPLICATIONS:\n")
+cat("  The optimal swing rate of ", sprintf("%.1f%%", equilibrium$batter_swing_pct * 100),
+    " indicates a ", swing_assessment, " approach.\n", sep = "")
+cat("  ", swing_context, "\n\n", sep = "")
+
+cat("EXPECTED OUTCOME:\n")
+cat("  At equilibrium, the batter's expected value is ",
+    sprintf("%.4f", equilibrium$equilibrium_value), " runs.\n", sep = "")
+
+if (equilibrium$equilibrium_value > 0) {
+  cat("  This positive value favors the batter in this matchup.\n")
+} else if (equilibrium$equilibrium_value < 0) {
+  cat("  This negative value favors the pitcher in this matchup.\n")
+} else {
+  cat("  This neutral value indicates an evenly matched situation.\n")
+}
+
+cat("\n")
+cat("=" , rep("=", 70), "\n", sep = "")
+```
+
+---
+
+**Analysis Complete.** Adjust `target_batter` and `target_pitcher` in the User Configuration section to explore different matchups.
