@@ -33,9 +33,13 @@ knitr::opts_chunk$set(
 # USER INPUTS: Configure your analysis here
 # ============================================================================
 
-# Set target_batter and target_pitcher to player names (e.g., "Trout, Mike")
-# Set to NULL to use League Average stats for the most recent year
-# To use custom manual stats, define manual_batter_stats or manual_pitcher_stats below
+# DATA SOURCE SELECTION
+# Choose which data to use: "lahman" or "statcast"
+data_source <- "statcast"  # Options: "lahman", "statcast"
+
+# PLAYER SELECTION (format: "Last, First")
+# Set to NULL to use League Average stats
+# Examples: "Rodón, Carlos", "Ward, Taylor", "Sale, Chris"
 
 target_batter <- NULL
 target_pitcher <- NULL
@@ -86,6 +90,35 @@ theme_baseball <- function() {
       plot.background = element_rect(fill = baseball_colors$cream, color = NA),
       panel.background = element_rect(fill = "white", color = NA)
     )
+}
+```
+
+## Load Statcast Data
+
+```{r load_statcast, message=FALSE}
+# ============================================================================
+# LOAD 2024 STATCAST CSV FILES
+# ============================================================================
+
+# Load CSV files if using Statcast data
+if (data_source == "statcast") {
+
+  # Load batter stats
+  statcast_batters <- read_csv("batter_stats_2024.csv", show_col_types = FALSE) %>%
+    rename(player_name = `last_name, first_name`) %>%
+    mutate(player_name = str_trim(player_name))
+
+  # Load pitcher stats
+  statcast_pitchers <- read_csv("pitcher_stats_2024.csv", show_col_types = FALSE) %>%
+    rename(player_name = `last_name, first_name`) %>%
+    mutate(player_name = str_trim(player_name))
+
+  cat("✅ Statcast data loaded successfully\n")
+  cat("   Batters:", nrow(statcast_batters), "players\n")
+  cat("   Pitchers:", nrow(statcast_pitchers), "players\n\n")
+
+} else {
+  cat("📚 Using Lahman database (Statcast CSVs not loaded)\n\n")
 }
 ```
 
@@ -225,6 +258,126 @@ get_pitcher_stats <- function(name = NULL) {
   cat("📈 Using LEAGUE AVERAGE stats for pitcher (", recent_year, " season)\n", sep = "")
   return(as.list(league_avg))
 }
+
+# ============================================================================
+# STATCAST DATA RETRIEVAL FUNCTIONS
+# ============================================================================
+
+get_statcast_batter_stats <- function(name = NULL) {
+  # Retrieve batter stats from Statcast CSV
+
+  if (!exists("statcast_batters")) {
+    stop("Statcast data not loaded. Set data_source = 'statcast' in user inputs.")
+  }
+
+  # Check for manual stats first
+  if (exists("manual_batter_stats") && !is.null(manual_batter_stats)) {
+    cat("📊 Using MANUAL stats for batter\n")
+    return(manual_batter_stats)
+  }
+
+  # If a specific name is provided, fetch from Statcast
+  if (!is.null(name)) {
+    player_data <- statcast_batters %>%
+      filter(player_name == name)
+
+    if (nrow(player_data) > 0) {
+      stats <- list(
+        player_name = player_data$player_name[1],
+        pa = player_data$pa[1],
+        avg = player_data$batting_avg[1],
+        obp = player_data$on_base_percent[1],
+        slg = player_data$slg_percent[1],
+        woba = player_data$woba[1],
+        swing_pct = player_data$swing_percent[1] / 100,
+        z_swing_pct = player_data$z_swing_percent[1] / 100,
+        oz_swing_pct = player_data$oz_swing_percent[1] / 100,
+        iz_contact_pct = player_data$iz_contact_percent[1] / 100,
+        oz_contact_pct = player_data$oz_contact_percent[1] / 100,
+        f_strike_pct = player_data$f_strike_percent[1] / 100
+      )
+      cat("⚾ Using STATCAST data for batter:", name, "\n")
+      return(stats)
+    } else {
+      cat("⚠️  Player", name, "not found in Statcast. Falling back to League Average.\n")
+    }
+  }
+
+  # Default: Calculate League Average from Statcast
+  league_avg <- statcast_batters %>%
+    summarise(
+      avg = mean(batting_avg, na.rm = TRUE),
+      obp = mean(on_base_percent, na.rm = TRUE),
+      slg = mean(slg_percent, na.rm = TRUE),
+      woba = mean(woba, na.rm = TRUE),
+      swing_pct = mean(swing_percent, na.rm = TRUE) / 100,
+      z_swing_pct = mean(z_swing_percent, na.rm = TRUE) / 100,
+      oz_swing_pct = mean(oz_swing_percent, na.rm = TRUE) / 100,
+      iz_contact_pct = mean(iz_contact_percent, na.rm = TRUE) / 100,
+      oz_contact_pct = mean(oz_contact_percent, na.rm = TRUE) / 100,
+      f_strike_pct = mean(f_strike_percent, na.rm = TRUE) / 100,
+      pa = sum(pa, na.rm = TRUE)
+    )
+
+  cat("📈 Using STATCAST LEAGUE AVERAGE stats for batter (2024 season)\n")
+  return(as.list(league_avg))
+}
+
+get_statcast_pitcher_stats <- function(name = NULL) {
+  # Retrieve pitcher stats from Statcast CSV
+
+  if (!exists("statcast_pitchers")) {
+    stop("Statcast data not loaded. Set data_source = 'statcast' in user inputs.")
+  }
+
+  # Check for manual stats first
+  if (exists("manual_pitcher_stats") && !is.null(manual_pitcher_stats)) {
+    cat("📊 Using MANUAL stats for pitcher\n")
+    return(manual_pitcher_stats)
+  }
+
+  # If a specific name is provided, fetch from Statcast
+  if (!is.null(name)) {
+    player_data <- statcast_pitchers %>%
+      filter(player_name == name)
+
+    if (nrow(player_data) > 0) {
+      stats <- list(
+        player_name = player_data$player_name[1],
+        pa = player_data$pa[1],
+        woba = player_data$woba[1],
+        xwoba = player_data$xwoba[1],
+        f_strike_pct = player_data$f_strike_percent[1] / 100,
+        whiff_pct = player_data$whiff_percent[1] / 100,
+        z_swing_pct = player_data$z_swing_percent[1] / 100,
+        oz_swing_pct = player_data$oz_swing_percent[1] / 100,
+        swing_pct = player_data$swing_percent[1] / 100,
+        hard_hit_pct = player_data$hard_hit_percent[1] / 100
+      )
+      cat("⚾ Using STATCAST data for pitcher:", name, "\n")
+      return(stats)
+    } else {
+      cat("⚠️  Player", name, "not found in Statcast. Falling back to League Average.\n")
+    }
+  }
+
+  # Default: Calculate League Average from Statcast
+  league_avg <- statcast_pitchers %>%
+    summarise(
+      woba = mean(woba, na.rm = TRUE),
+      xwoba = mean(xwoba, na.rm = TRUE),
+      f_strike_pct = mean(f_strike_percent, na.rm = TRUE) / 100,
+      whiff_pct = mean(whiff_percent, na.rm = TRUE) / 100,
+      z_swing_pct = mean(z_swing_percent, na.rm = TRUE) / 100,
+      oz_swing_pct = mean(oz_swing_percent, na.rm = TRUE) / 100,
+      swing_pct = mean(swing_percent, na.rm = TRUE) / 100,
+      hard_hit_pct = mean(hard_hit_percent, na.rm = TRUE) / 100,
+      pa = sum(pa, na.rm = TRUE)
+    )
+
+  cat("📈 Using STATCAST LEAGUE AVERAGE stats for pitcher (2024 season)\n")
+  return(as.list(league_avg))
+}
 ```
 
 ```{r load_data}
@@ -232,9 +385,14 @@ get_pitcher_stats <- function(name = NULL) {
 # LOAD DATA FOR ANALYSIS
 # ============================================================================
 
-# Retrieve batter and pitcher statistics based on user configuration
-batter_stats <- get_batter_stats(target_batter)
-pitcher_stats <- get_pitcher_stats(target_pitcher)
+# Retrieve batter and pitcher statistics based on data source selection
+if (data_source == "statcast") {
+  batter_stats <- get_statcast_batter_stats(target_batter)
+  pitcher_stats <- get_statcast_pitcher_stats(target_pitcher)
+} else {
+  batter_stats <- get_batter_stats(target_batter)
+  pitcher_stats <- get_pitcher_stats(target_pitcher)
+}
 ```
 
 ## Game Theory Matrix
@@ -357,6 +515,73 @@ cat("   Batter's expected runs: ", sprintf("%.4f", equilibrium$equilibrium_value
 cat("\n")
 ```
 
+## Best Response to Real Data
+
+```{r best_response}
+# ============================================================================
+# BEST RESPONSE ANALYSIS: Using Real Pitcher Behavior
+# ============================================================================
+
+# This section calculates the batter's optimal swing % given the ACTUAL
+# first-pitch strike rate observed in real data (not theoretical equilibrium)
+
+if (data_source == "statcast" && !is.null(pitcher_stats$f_strike_pct)) {
+
+  # Extract observed pitcher zone rate from Statcast data
+  observed_zone_pct <- pitcher_stats$f_strike_pct
+
+  # Calculate batter's expected value for any swing percentage
+  # given the FIXED observed pitcher behavior
+  calc_batter_ev <- function(swing_pct, zone_pct) {
+    zone_swing <- equilibrium$payoffs$zone_swing
+    zone_take <- equilibrium$payoffs$zone_take
+    waste_swing <- equilibrium$payoffs$waste_swing
+    waste_take <- equilibrium$payoffs$waste_take
+
+    # Expected value = (prob zone) * EV(zone) + (prob waste) * EV(waste)
+    ev <- zone_pct * (swing_pct * zone_swing + (1 - swing_pct) * zone_take) +
+          (1 - zone_pct) * (swing_pct * waste_swing + (1 - swing_pct) * waste_take)
+    return(ev)
+  }
+
+  # Find optimal swing percentage by testing all values
+  swing_range <- seq(0, 1, by = 0.001)
+  ev_values <- sapply(swing_range, function(p) calc_batter_ev(p, observed_zone_pct))
+  optimal_idx <- which.max(ev_values)
+  optimal_swing_pct_real <- swing_range[optimal_idx]
+  optimal_ev_real <- ev_values[optimal_idx]
+
+  # Display results
+  cat("\n🎯 BEST RESPONSE TO REAL PITCHER DATA\n")
+  cat("=" , rep("=", 50), "\n", sep = "")
+  cat("\n⚾ OBSERVED PITCHER BEHAVIOR:\n")
+  cat("   First-pitch strike rate: ", sprintf("%.1f%%", observed_zone_pct * 100), "\n", sep = "")
+  cat("\n🏏 BATTER'S OPTIMAL RESPONSE:\n")
+  cat("   Swing on first pitch: ", sprintf("%.1f%%", optimal_swing_pct_real * 100), "\n", sep = "")
+  cat("   Take on first pitch:  ", sprintf("%.1f%%", (1 - optimal_swing_pct_real) * 100), "\n", sep = "")
+  cat("\n📊 EXPECTED VALUE AT OPTIMAL:\n")
+  cat("   Batter's expected runs: ", sprintf("%.4f", optimal_ev_real), "\n", sep = "")
+  cat("\n💡 COMPARISON:\n")
+  cat("   Nash Equilibrium swing%:  ", sprintf("%.1f%%", equilibrium$batter_swing_pct * 100), "\n", sep = "")
+  cat("   Best Response swing%:     ", sprintf("%.1f%%", optimal_swing_pct_real * 100), "\n", sep = "")
+
+  if (observed_zone_pct > equilibrium$pitcher_zone_pct) {
+    cat("   → Pitcher throws MORE strikes than equilibrium\n")
+    cat("   → Batter should be MORE aggressive\n")
+  } else if (observed_zone_pct < equilibrium$pitcher_zone_pct) {
+    cat("   → Pitcher throws FEWER strikes than equilibrium\n")
+    cat("   → Batter should be MORE patient\n")
+  } else {
+    cat("   → Pitcher behavior matches equilibrium perfectly\n")
+  }
+  cat("\n")
+
+} else {
+  cat("\n📚 Best Response analysis requires Statcast data\n")
+  cat("   Set data_source = 'statcast' to enable this feature\n\n")
+}
+```
+
 ## Visualization
 
 ```{r equilibrium_plot, fig.width=10, fig.height=6}
@@ -436,6 +661,94 @@ ggplot(ev_data, aes(x = swing_pct, y = expected_value, color = pitcher_location)
   scale_y_continuous(labels = label_number(accuracy = 0.01))
 ```
 
+```{r comparison_plot, fig.width=10, fig.height=6}
+# ============================================================================
+# COMPARISON VISUALIZATION: Nash vs. Best Response
+# ============================================================================
+
+if (data_source == "statcast" && exists("optimal_swing_pct_real")) {
+
+  # Create data for visualization
+  swing_seq <- seq(0, 1, by = 0.01)
+
+  # Calculate EV for observed pitcher behavior across swing percentages
+  ev_observed <- sapply(swing_seq, function(p) calc_batter_ev(p, observed_zone_pct))
+
+  comparison_data <- tibble(
+    swing_pct = swing_seq * 100,
+    ev = ev_observed
+  )
+
+  # Create the plot
+  ggplot(comparison_data, aes(x = swing_pct, y = ev)) +
+    geom_line(linewidth = 1.2, color = baseball_colors$dark_green) +
+
+    # Nash Equilibrium point
+    geom_vline(
+      xintercept = equilibrium$batter_swing_pct * 100,
+      linetype = "dashed",
+      color = baseball_colors$blue,
+      linewidth = 0.8
+    ) +
+    geom_point(
+      data = tibble(
+        x = equilibrium$batter_swing_pct * 100,
+        y = calc_batter_ev(equilibrium$batter_swing_pct, observed_zone_pct)
+      ),
+      aes(x = x, y = y),
+      color = baseball_colors$blue,
+      size = 4
+    ) +
+    annotate(
+      "text",
+      x = equilibrium$batter_swing_pct * 100,
+      y = calc_batter_ev(equilibrium$batter_swing_pct, observed_zone_pct) - 0.015,
+      label = sprintf("Nash Equilibrium\n%.1f%%", equilibrium$batter_swing_pct * 100),
+      color = baseball_colors$blue,
+      fontface = "bold",
+      size = 3.5,
+      vjust = 1
+    ) +
+
+    # Best Response point
+    geom_vline(
+      xintercept = optimal_swing_pct_real * 100,
+      linetype = "solid",
+      color = baseball_colors$red,
+      linewidth = 0.8
+    ) +
+    geom_point(
+      data = tibble(
+        x = optimal_swing_pct_real * 100,
+        y = optimal_ev_real
+      ),
+      aes(x = x, y = y),
+      color = baseball_colors$red,
+      size = 4
+    ) +
+    annotate(
+      "text",
+      x = optimal_swing_pct_real * 100,
+      y = optimal_ev_real + 0.015,
+      label = sprintf("Best Response\n%.1f%%", optimal_swing_pct_real * 100),
+      color = baseball_colors$red,
+      fontface = "bold",
+      size = 3.5,
+      vjust = 0
+    ) +
+
+    labs(
+      title = "Optimal Swing% vs. Real Pitcher Behavior",
+      subtitle = sprintf("Given observed first-pitch strike rate: %.1f%%", observed_zone_pct * 100),
+      x = "Batter Swing Percentage (%)",
+      y = "Expected Runs (Batter's Perspective)"
+    ) +
+    theme_baseball() +
+    scale_x_continuous(breaks = seq(0, 100, 20), limits = c(0, 100)) +
+    scale_y_continuous(labels = label_number(accuracy = 0.01))
+}
+```
+
 ## Strategic Interpretation
 
 ```{r interpretation}
@@ -503,8 +816,71 @@ if (equilibrium$equilibrium_value > 0) {
 }
 
 cat("\n")
+
+# Add Statcast-specific insights
+if (data_source == "statcast" && exists("optimal_swing_pct_real")) {
+  cat("=" , rep("=", 70), "\n", sep = "")
+  cat("\n📊 STATCAST DATA INSIGHTS\n")
+  cat("=" , rep("=", 70), "\n", sep = "")
+  cat("\n")
+
+  cat("REAL-WORLD DATA:\n")
+  cat("  • Observed first-pitch strike rate: ", sprintf("%.1f%%", observed_zone_pct * 100), "\n", sep = "")
+  cat("  • Nash equilibrium predicts: ", sprintf("%.1f%%", equilibrium$pitcher_zone_pct * 100), "\n", sep = "")
+
+  deviation <- abs(observed_zone_pct - equilibrium$pitcher_zone_pct)
+  if (deviation > 0.10) {
+    cat("  • LARGE deviation from equilibrium (", sprintf("%.1f", deviation * 100), " percentage points)\n\n", sep = "")
+  } else if (deviation > 0.05) {
+    cat("  • Moderate deviation from equilibrium (", sprintf("%.1f", deviation * 100), " percentage points)\n\n", sep = "")
+  } else {
+    cat("  • Close to equilibrium prediction (", sprintf("%.1f", deviation * 100), " percentage points)\n\n", sep = "")
+  }
+
+  cat("ACTIONABLE STRATEGY:\n")
+
+  if (observed_zone_pct > equilibrium$pitcher_zone_pct + 0.05) {
+    cat("  ⚠️  PITCHER THROWS TOO MANY STRIKES\n")
+    cat("  → Batter can exploit this by being MORE aggressive\n")
+    cat("  → Recommended swing%: ", sprintf("%.1f%%", optimal_swing_pct_real * 100), "\n", sep = "")
+    cat("  → This is ", sprintf("%.1f", (optimal_swing_pct_real - equilibrium$batter_swing_pct) * 100),
+        " percentage points MORE aggressive than equilibrium\n", sep = "")
+    ev_gain <- optimal_ev_real - equilibrium$equilibrium_value
+    if (ev_gain > 0) {
+      cat("  → Expected value gain: +", sprintf("%.4f", ev_gain), " runs per first pitch\n", sep = "")
+    }
+  } else if (observed_zone_pct < equilibrium$pitcher_zone_pct - 0.05) {
+    cat("  ⚠️  PITCHER THROWS TOO FEW STRIKES\n")
+    cat("  → Batter should be MORE patient and wait for better counts\n")
+    cat("  → Recommended swing%: ", sprintf("%.1f%%", optimal_swing_pct_real * 100), "\n", sep = "")
+    cat("  → This is ", sprintf("%.1f", abs(optimal_swing_pct_real - equilibrium$batter_swing_pct) * 100),
+        " percentage points LESS aggressive than equilibrium\n", sep = "")
+    ev_gain <- optimal_ev_real - equilibrium$equilibrium_value
+    if (ev_gain > 0) {
+      cat("  → Expected value gain: +", sprintf("%.4f", ev_gain), " runs per first pitch\n", sep = "")
+    }
+  } else {
+    cat("  ✅ PITCHER BEHAVIOR NEAR EQUILIBRIUM\n")
+    cat("  → Nash equilibrium strategy is approximately optimal\n")
+    cat("  → Recommended swing%: ", sprintf("%.1f%%", optimal_swing_pct_real * 100), "\n", sep = "")
+  }
+
+  cat("\n")
+}
+
 cat("=" , rep("=", 70), "\n", sep = "")
 ```
+
+---
+
+**Analysis Complete.**
+
+**To explore different scenarios:**
+- Change `data_source` to switch between "lahman" and "statcast"
+- Adjust `target_batter` and `target_pitcher` to analyze specific matchups
+- Set both to `NULL` for league average comparisons
+- Use Statcast data to see how real pitcher behavior differs from theoretical equilibrium
+
 
 ---
 
